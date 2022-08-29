@@ -49,6 +49,9 @@ import jdk.tools.jlink.plugin.Plugin;
 
 public final class ClassForNamePlugin implements Plugin {
     public static final String NAME = "class-for-name";
+    private static final String GLOBAL = "global";
+
+    private boolean isGlobalTransformation;
 
     private static String binaryClassName(String path) {
         return path.substring(path.indexOf('/', 1) + 1,
@@ -65,6 +68,22 @@ public final class ClassForNamePlugin implements Plugin {
         int index = binaryName.lastIndexOf("/");
 
         return index == -1 ? "" : binaryName.substring(0, index);
+    }
+
+    private void modifyInstructions(LdcInsnNode ldc, InsnList il, MethodInsnNode min, String thatClassName) {
+        Type type = Type.getObjectType(thatClassName);
+        MethodInsnNode lookupInsn = new MethodInsnNode(Opcodes.INVOKESTATIC,
+                "java/lang/invoke/MethodHandles",
+                "lookup","()Ljava/lang/invoke/MethodHandles$Lookup;");
+        LdcInsnNode ldcInsn = new LdcInsnNode(type);
+        MethodInsnNode ensureInitializedInsn = new MethodInsnNode(Opcodes.INVOKEVIRTUAL,
+                "java/lang/invoke/MethodHandles$Lookup",
+                "ensureInitialized", "(Ljava/lang/Class;)Ljava/lang/Class;");
+
+        il.remove(ldc);
+        il.set(min, lookupInsn);
+        il.insert(lookupInsn, ldcInsn);
+        il.insert(ldcInsn, ensureInitializedInsn);
     }
 
     private ResourcePoolEntry transform(ResourcePoolEntry resource, ResourcePool pool) {
@@ -96,35 +115,29 @@ public final class ClassForNamePlugin implements Plugin {
                             min.desc.equals("(Ljava/lang/String;)Ljava/lang/Class;")) {
                         String ldcClassName = ldc.cst.toString();
                         String thatClassName = ldcClassName.replaceAll("\\.", "/");
-                        Optional<ResourcePoolEntry> thatClass =
-                                pool.findEntryInContext(thatClassName + ".class", resource);
 
-                        if (thatClass.isPresent()) {
-                            int thatAccess = getAccess(thatClass.get());
-                            String thatPackage = getPackage(thatClassName);
+                        if (isGlobalTransformation) {
+                            /* Blindly transform bytecode */
+                            modifyInstructions(ldc, il, min, thatClassName);
+                            modified = true;
+                        } else {
+                            Optional<ResourcePoolEntry> thatClass =
+                                    pool.findEntryInContext(thatClassName + ".class", resource);
 
-                            if ((thatAccess & Opcodes.ACC_PRIVATE) != Opcodes.ACC_PRIVATE &&
-                                    ((thatAccess & Opcodes.ACC_PUBLIC) == Opcodes.ACC_PUBLIC ||
-                                            thisPackage.equals(thatPackage))) {
-                                Type type = Type.getObjectType(thatClassName);
-                                MethodInsnNode lookupInsn = new MethodInsnNode(Opcodes.INVOKESTATIC,
-                                        "java/lang/invoke/MethodHandles",
-                                        "lookup","()Ljava/lang/invoke/MethodHandles$Lookup;");
-                                LdcInsnNode ldcInsn = new LdcInsnNode(type);
-                                MethodInsnNode ensureInitializedInsn = new MethodInsnNode(Opcodes.INVOKEVIRTUAL,
-                                        "java/lang/invoke/MethodHandles$Lookup",
-                                        "ensureInitialized", "(Ljava/lang/Class;)Ljava/lang/Class;");
+                            if (thatClass.isPresent()) {
+                                int thatAccess = getAccess(thatClass.get());
+                                String thatPackage = getPackage(thatClassName);
 
-                                il.remove(ldc);
-                                il.set(min, lookupInsn);
-                                il.insert(lookupInsn, ldcInsn);
-                                il.insert(ldcInsn, ensureInitializedInsn);
-                                modified = true;
+                                if ((thatAccess & Opcodes.ACC_PRIVATE) != Opcodes.ACC_PRIVATE &&
+                                        ((thatAccess & Opcodes.ACC_PUBLIC) == Opcodes.ACC_PUBLIC ||
+                                                thisPackage.equals(thatPackage))) {
+                                    modifyInstructions(ldc, il, min, thatClassName);
+                                    modified = true;
 
+                                }
                             }
                         }
                     }
-
                     ldc = null;
                 } else if (!(insn instanceof LabelNode) &&
                         !(insn instanceof LineNumberNode)) {
@@ -145,6 +158,7 @@ public final class ClassForNamePlugin implements Plugin {
         return resource;
     }
 
+
     @Override
     public String getName() {
         return NAME;
@@ -159,9 +173,7 @@ public final class ClassForNamePlugin implements Plugin {
                 .forEach(resource -> {
                     String path = resource.path();
 
-                    // TODO added this condition for debugging && !resource.moduleName().equals("java.base") - remove it.
-
-                    if (path.endsWith(".class") && !path.endsWith("/module-info.class") && !resource.moduleName().equals("java.base")) {
+                    if (path.endsWith(".class") && !path.endsWith("/module-info.class")) {
                         out.add(transform(resource, in));
                     } else {
                         out.add(resource);
@@ -177,7 +189,7 @@ public final class ClassForNamePlugin implements Plugin {
 
     @Override
     public boolean hasArguments() {
-        return false;
+        return true;
     }
 
     @Override
@@ -192,6 +204,8 @@ public final class ClassForNamePlugin implements Plugin {
 
     @Override
     public void configure(Map<String, String> config) {
-
+        String arg = config.get(getName());
+        boolean isGlobalTrans = Boolean.parseBoolean(arg);
+        isGlobalTransformation = isGlobalTrans;
     }
 }
