@@ -50,6 +50,7 @@ import jdk.tools.jlink.plugin.Plugin;
 public final class ClassForNamePlugin implements Plugin {
     public static final String NAME = "class-for-name";
     private static final String GLOBAL = "global";
+    private static final String MODULE = "module";
 
     private boolean isGlobalTransformation;
 
@@ -135,6 +136,16 @@ public final class ClassForNamePlugin implements Plugin {
                                     modified = true;
 
                                 }
+                            } else {
+                                /* Check if class belongs to java.base, in which case we want to do the transformation */
+                                thatClass = pool.findEntry( "/java.base/" + thatClassName + ".class");
+                                if (thatClass.isPresent()) {
+                                    int thatAccess = getAccess(thatClass.get());
+                                    if ((thatAccess & Opcodes.ACC_PUBLIC) == Opcodes.ACC_PUBLIC) {
+                                        modifyInstructions(ldc, il, min, thatClassName);
+                                        modified = true;
+                                    }
+                                }
                             }
                         }
                     }
@@ -157,7 +168,6 @@ public final class ClassForNamePlugin implements Plugin {
 
         return resource;
     }
-
 
     @Override
     public String getName() {
@@ -205,7 +215,12 @@ public final class ClassForNamePlugin implements Plugin {
     @Override
     public void configure(Map<String, String> config) {
         String arg = config.get(getName());
-        boolean isGlobalTrans = Boolean.parseBoolean(arg);
-        isGlobalTransformation = isGlobalTrans;
+        if (arg != null) {
+            if (arg.equalsIgnoreCase(GLOBAL)) {
+                isGlobalTransformation = true;
+            } else if (! arg.equalsIgnoreCase(MODULE)){
+                throw new IllegalArgumentException(getName() + ": " + arg);
+            }
+        }
     }
 }
