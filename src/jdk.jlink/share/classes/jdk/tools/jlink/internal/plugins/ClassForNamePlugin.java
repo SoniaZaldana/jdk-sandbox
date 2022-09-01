@@ -24,6 +24,7 @@
  */
 package jdk.tools.jlink.internal.plugins;
 
+import java.lang.module.ModuleDescriptor;
 import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
@@ -31,6 +32,7 @@ import java.util.Objects;
 import java.util.Optional;
 import jdk.tools.jlink.plugin.ResourcePool;
 import jdk.tools.jlink.plugin.ResourcePoolBuilder;
+import jdk.tools.jlink.plugin.ResourcePoolModule;
 import jdk.internal.org.objectweb.asm.ClassReader;
 import static jdk.internal.org.objectweb.asm.ClassReader.*;
 import jdk.internal.org.objectweb.asm.ClassWriter;
@@ -137,9 +139,10 @@ public final class ClassForNamePlugin implements Plugin {
 
                                 }
                             } else {
-                                /* Check if class belongs to java.base, in which case we want to do the transformation */
+                                /* Check if class belongs to java.base */
                                 thatClass = pool.findEntry( "/java.base/" + thatClassName + ".class");
-                                if (thatClass.isPresent()) {
+                                if (thatClass.isPresent() &&
+                                        isAccessibleToCurrentModule(pool, thatClassName, resource.moduleName())) {
                                     int thatAccess = getAccess(thatClass.get());
                                     if ((thatAccess & Opcodes.ACC_PUBLIC) == Opcodes.ACC_PUBLIC) {
                                         modifyInstructions(ldc, il, min, thatClassName);
@@ -167,6 +170,24 @@ public final class ClassForNamePlugin implements Plugin {
         }
 
         return resource;
+    }
+
+    private boolean isAccessibleToCurrentModule(ResourcePool pool, String thatClassName, String currentModule) {
+        ResourcePoolModule javaBase = pool.moduleView().findModule("java.base")
+                .orElse(null);
+        ModuleDescriptor desc = javaBase.descriptor();
+        ModuleDescriptor.Exports export = desc.exports()
+                .stream()
+                .filter(md ->
+                    md.source().equals(getPackage(thatClassName).replace("/", ".")))
+                .findFirst()
+                .orElse(null);
+        if (export != null) {
+            /* Check if exported to everyone or to current module */
+            if (export.targets().isEmpty() || export.targets().contains(currentModule)) return true;
+        }
+
+        return false;
     }
 
     @Override
