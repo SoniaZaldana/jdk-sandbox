@@ -124,6 +124,7 @@ public final class ClassForNamePlugin implements Plugin {
                             modifyInstructions(ldc, il, min, thatClassName);
                             modified = true;
                         } else {
+                            /* Transform calls for classes within the same module */
                             Optional<ResourcePoolEntry> thatClass =
                                     pool.findEntryInContext(thatClassName + ".class", resource);
 
@@ -139,15 +140,10 @@ public final class ClassForNamePlugin implements Plugin {
 
                                 }
                             } else {
-                                /* Check if class belongs to java.base */
-                                thatClass = pool.findEntry( "/java.base/" + thatClassName + ".class");
-                                if (thatClass.isPresent() &&
-                                        isAccessibleToCurrentModule(pool, thatClassName, resource.moduleName())) {
-                                    int thatAccess = getAccess(thatClass.get());
-                                    if ((thatAccess & Opcodes.ACC_PUBLIC) == Opcodes.ACC_PUBLIC) {
-                                        modifyInstructions(ldc, il, min, thatClassName);
-                                        modified = true;
-                                    }
+                                /* Check module graph to see if class is accessible */
+                                if (isAccessibleToCurrentModule(pool, thatClassName, resource.moduleName())) {
+                                    modifyInstructions(ldc, il, min, thatClassName);
+                                    modified = true;
                                 }
                             }
                         }
@@ -172,21 +168,86 @@ public final class ClassForNamePlugin implements Plugin {
         return resource;
     }
 
+    /**
+     * Identifies whether we can make the ldc transformation based on VM accessibility checks
+     * as specified per JVMS 5.4.4. A class (being accessed) must be public,
+     * its module must be read by the current class's module,
+     * and its package must be exported to the current class's module.
+     * @param pool the resource pool
+     * @param thatClassName the class name called in Class.forName
+     * @param currentModule the current class's module
+     * @return
+     */
     private boolean isAccessibleToCurrentModule(ResourcePool pool, String thatClassName, String currentModule) {
-        ResourcePoolModule javaBase = pool.moduleView().findModule("java.base")
-                .orElse(null);
-        ModuleDescriptor desc = javaBase.descriptor();
-        ModuleDescriptor.Exports export = desc.exports()
-                .stream()
-                .filter(md ->
-                    md.source().equals(getPackage(thatClassName).replace("/", ".")))
-                .findFirst()
-                .orElse(null);
-        if (export != null) {
-            /* Check if exported to everyone or to current module */
-            if (export.targets().isEmpty() || export.targets().contains(currentModule)) return true;
+
+        ResourcePoolModule targetModule = getTargetModule(pool, thatClassName);
+        if (targetModule != null) {
+
+            /* First, check if target module even exports the package we want */
+            if (targetModuleExportsPackage(targetModule, thatClassName, currentModule)) {
+
+                /* Then, check if current module requires target module. */
+                if (currentModuleRequiresTargetModule(pool, currentModule, targetModule)) {
+
+                    /* Verify class is public */
+                    Optional<ResourcePoolEntry> thatClass = pool
+                            .findEntry("/" + targetModule.name() + "/" + thatClassName + ".class");
+                    if (thatClass.isPresent()) {
+                        int thatAccess = getAccess(thatClass.get());
+                        if ((thatAccess & Opcodes.ACC_PUBLIC) == Opcodes.ACC_PUBLIC) {
+                            return true;
+                        }
+                    }
+                }
+            }
         }
 
+        return false;
+    }
+
+    private ResourcePoolModule getTargetModule(ResourcePool pool, String givenClass) {
+        ResourcePoolModule targetModule = pool.moduleView().modules()
+                .filter(m -> m.findEntry(givenClass.replace(".", "/") + ".class").isPresent())
+                .findFirst().orElse(null);
+        return targetModule;
+    }
+
+    private boolean targetModuleExportsPackage(ResourcePoolModule targetModule, String thatClassName, String currentModule) {
+        ModuleDescriptor targetDesc = targetModule.descriptor();
+
+        if (! targetDesc.exports().isEmpty()){
+            ModuleDescriptor.Exports targetExport = targetDesc.exports()
+                    .stream()
+                    .filter(md ->
+                            md.source().equals(getPackage(thatClassName).replace("/", ".")))
+                    .findFirst()
+                    .orElse(null);
+            if (targetExport != null) {
+                if (targetExport.targets().isEmpty()
+                        || targetExport.targets().contains(currentModule)) {
+                    /* target module either exports to everyone or our module in specific */
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+
+    private boolean currentModuleRequiresTargetModule(ResourcePool pool, String currentModule, ResourcePoolModule targetModule) {
+        ResourcePoolModule currentMod = pool.moduleView().findModule(currentModule).orElse(null);
+        if (currentMod != null) {
+            ModuleDescriptor currentDesc = currentMod.descriptor();
+            ModuleDescriptor.Requires requires = currentDesc.requires()
+                    .stream()
+                    .filter(md ->
+                            md.name().equals(targetModule.name()))
+                    .findFirst()
+                    .orElse(null);
+            if (requires != null) {
+                return true;
+            }
+        }
         return false;
     }
 
