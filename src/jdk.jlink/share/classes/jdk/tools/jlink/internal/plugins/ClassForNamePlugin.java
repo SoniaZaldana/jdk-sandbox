@@ -233,6 +233,26 @@ public final class ClassForNamePlugin implements Plugin {
         return false;
     }
 
+    private boolean isModuleAccessibleViaTransitiveDependencies(ResourcePool pool, ResourcePoolModule currentMod,
+                                                                ResourcePoolModule targetModule) {
+        for (ModuleDescriptor.Requires requires : currentMod.descriptor().requires()) {
+            ResourcePoolModule mod = pool.moduleView().findModule(requires.name()).orElse(null);
+            if (mod != null) {
+                ModuleDescriptor.Requires transitiveRequires = mod.descriptor().requires()
+                        .stream()
+                        .filter(md ->
+                                md.name().equals(targetModule.name())
+                                        && md.modifiers().contains(ModuleDescriptor.Requires.Modifier.TRANSITIVE))
+                        .findFirst()
+                        .orElse(null);
+                if (transitiveRequires != null) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
 
     private boolean currentModuleRequiresTargetModule(ResourcePool pool, String currentModule, ResourcePoolModule targetModule) {
         ResourcePoolModule currentMod = pool.moduleView().findModule(currentModule).orElse(null);
@@ -246,6 +266,8 @@ public final class ClassForNamePlugin implements Plugin {
                     .orElse(null);
             if (requires != null) {
                 return true;
+            } else {
+                return isModuleAccessibleViaTransitiveDependencies(pool, currentMod, targetModule);
             }
         }
         return false;
