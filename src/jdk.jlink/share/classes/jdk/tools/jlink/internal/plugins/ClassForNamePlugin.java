@@ -25,11 +25,10 @@
 package jdk.tools.jlink.internal.plugins;
 
 import java.lang.module.ModuleDescriptor;
-import java.util.Iterator;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
-import java.util.Optional;
+import java.util.*;
+
+import jdk.tools.jlink.internal.ResourcePrevisitor;
+import jdk.tools.jlink.internal.StringTable;
 import jdk.tools.jlink.plugin.ResourcePool;
 import jdk.tools.jlink.plugin.ResourcePoolBuilder;
 import jdk.tools.jlink.plugin.ResourcePoolModule;
@@ -49,12 +48,16 @@ import jdk.internal.org.objectweb.asm.tree.MethodNode;
 import jdk.tools.jlink.plugin.ResourcePoolEntry;
 import jdk.tools.jlink.plugin.Plugin;
 
-public final class ClassForNamePlugin implements Plugin {
+public final class ClassForNamePlugin implements Plugin, ResourcePrevisitor {
     public static final String NAME = "class-for-name";
     private static final String GLOBAL = "global";
     private static final String MODULE = "module";
 
     private boolean isGlobalTransformation;
+
+    private Map<String, Map<String, List<?>>> moduleView;
+
+    private Map<String, Map<String, List<String>>> moduleView2;
 
     private static String binaryClassName(String path) {
         return path.substring(path.indexOf('/', 1) + 1,
@@ -97,7 +100,6 @@ public final class ClassForNamePlugin implements Plugin {
         List<MethodNode> ms = cn.methods;
         boolean modified = false;
         LdcInsnNode ldc = null;
-
         String thisPackage = getPackage(binaryClassName(resource.path()));
 
         for (MethodNode mn : ms) {
@@ -327,4 +329,88 @@ public final class ClassForNamePlugin implements Plugin {
             }
         }
     }
+
+    @Override
+    public void previsit(ResourcePool resources, StringTable strings) {
+
+        /* Option 1: Map of requires and exports per module. Saves some computation in calling descriptors over and
+        * over */
+        moduleView = new HashMap<>();
+        for (ResourcePoolModule mod : resources.moduleView().modules().toList()) {
+            Map<String,  List<?>> innerMod = new HashMap<>();
+            ModuleDescriptor descriptor = mod.descriptor();
+            innerMod.put("requires", descriptor.requires().stream().toList());
+            innerMod.put("exports", descriptor.exports().stream().toList());
+            moduleView.put(mod.name(), innerMod);
+        }
+
+        /* Option 2: Make a map of modules and accessible packages per module. Saves computation in working out
+        * relationships in module graph to identify accessible packages. */
+        moduleView2 = new HashMap<>();
+        for (ResourcePoolModule module : resources.moduleView().modules().toList()) {
+            ModuleDescriptor descriptor = module.descriptor();
+            Map<String, List<String>> accessiblePerModule = new HashMap<>();
+            for (ModuleDescriptor.Requires requires : descriptor.requires().stream().toList()) {
+                ResourcePoolModule targetMod = resources.moduleView().findModule(requires.name()).orElse(null);
+                if (targetMod == null) continue;
+                List<String> accessiblePerRequires = new ArrayList<>();
+
+                /* Check exports for direct dependencies */
+                addExportedPackages(module, targetMod, accessiblePerRequires);
+
+                /* Checks accessible packages via transitive dependencies */
+                addPackagesViaTransitiveDependencies(resources, accessiblePerModule, targetMod);
+
+                if (! accessiblePerRequires.isEmpty()) {
+                    accessiblePerModule.put(requires.name(), accessiblePerRequires);
+                }
+            }
+            moduleView2.put(module.name(), accessiblePerModule);
+        }
+
+    }
+
+
+    /**
+     * Adds accessible packages to list based on the target module having a specific export to the current
+     * module or an open export.
+     * @param currModule the current module filling out accessible packages
+     * @param targetMod the module being evaluated for accessible packages
+     * @param accessiblePerReq list of accessible packages
+     */
+    private static void addExportedPackages(ResourcePoolModule currModule, ResourcePoolModule targetMod, List<String> accessiblePerReq) {
+        for (ModuleDescriptor.Exports export : targetMod.descriptor().exports().stream().toList()) {
+            if (export.targets().contains(currModule.name()) || export.targets().isEmpty()) {
+                accessiblePerReq.add(export.source());
+            }
+        }
+    }
+
+    /**
+     * Adds accessible packages to list based on the target module having a transitive dependency
+     * @param resources the resource pool
+     * @param currAccessMap the current accessibility map
+     * @param targetMod the module being investigated for transitive dependencies
+     */
+    private static void addPackagesViaTransitiveDependencies(ResourcePool resources, Map<String, List<String>> currAccessMap,
+                                                             ResourcePoolModule targetMod) {
+        for (ModuleDescriptor.Requires r : targetMod.descriptor().requires().stream().toList()) {
+            if (r.modifiers().contains(ModuleDescriptor.Requires.Modifier.TRANSITIVE)) {
+                ResourcePoolModule transitiveMod = resources.moduleView().findModule(r.name()).orElse(null);
+                if (transitiveMod == null) continue;
+                List<String> transitiveAccessible = new ArrayList<>();
+                addExportedPackages(targetMod, transitiveMod, transitiveAccessible);
+
+                if (currAccessMap.get(targetMod.name()) == null) {
+                    currAccessMap.put(targetMod.name(), transitiveAccessible);
+                } else {
+                    List<String> alreadyAccessible = currAccessMap.get(targetMod.name());
+                    alreadyAccessible.addAll(transitiveAccessible);
+                    currAccessMap.put(transitiveMod.name(), alreadyAccessible);
+                }
+            }
+        }
+    }
+
+
 }
