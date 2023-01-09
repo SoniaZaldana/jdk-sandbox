@@ -82,5 +82,6 @@ module jdk.jlink {
         jdk.tools.jlink.internal.plugins.VendorVersionPlugin,
         jdk.tools.jlink.internal.plugins.CDSPlugin,
         jdk.tools.jlink.internal.plugins.ClassForNamePlugin,
-        jdk.tools.jlink.internal.plugins.ModuleGraphPlugin;
+        jdk.tools.jlink.internal.plugins.ModuleGraphPlugin,
+        jdk.tools.jlink.internal.plugins.ClassGetMethodPlugin;
 }

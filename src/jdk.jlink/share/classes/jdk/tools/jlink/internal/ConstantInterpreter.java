@@ -1,9 +1,8 @@
 package jdk.tools.jlink.internal;
 
 import jdk.internal.org.objectweb.asm.Opcodes;
-import jdk.internal.org.objectweb.asm.tree.AbstractInsnNode;
-import jdk.internal.org.objectweb.asm.tree.InsnNode;
-import jdk.internal.org.objectweb.asm.tree.LdcInsnNode;
+import jdk.internal.org.objectweb.asm.Type;
+import jdk.internal.org.objectweb.asm.tree.*;
 import jdk.internal.org.objectweb.asm.tree.analysis.AnalyzerException;
 import jdk.internal.org.objectweb.asm.tree.analysis.BasicInterpreter;
 import jdk.internal.org.objectweb.asm.tree.analysis.BasicValue;
@@ -24,6 +23,8 @@ public class ConstantInterpreter extends BasicInterpreter {
             Object cst = ldc.cst;
             if (cst instanceof String) {
                 return new StringValue((String)cst, ldc);
+            } else if (cst instanceof Type c) {
+                return new ClassValue(c.getInternalName(), ldc);
             }
         } else if (insn instanceof InsnNode) {
             InsnNode i = (InsnNode)  insn;
