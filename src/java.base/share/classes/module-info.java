@@ -195,7 +195,8 @@ module java.base {
     exports jdk.internal.org.objectweb.asm.util to
         jdk.jfr;
     exports jdk.internal.org.objectweb.asm.commons to
-        jdk.jfr;
+        jdk.jfr,
+        jdk.jlink;
     exports jdk.internal.org.xml.sax to
         jdk.jfr;
     exports jdk.internal.org.xml.sax.helpers to

@@ -325,11 +325,11 @@ public final class TaskHelper {
                                             option);
                                 }
 
+                                addRequiredPluginOptions(plugin);
                                 if (! plugin.hasArguments()) {
                                     addEmptyArgumentMap(plugin);
                                     return;
                                 }
-                                addRequiredPluginOptions(plugin);
 
                                 Map<String, String> m = addArgumentMap(plugin);
                                 // handle one or more arguments
