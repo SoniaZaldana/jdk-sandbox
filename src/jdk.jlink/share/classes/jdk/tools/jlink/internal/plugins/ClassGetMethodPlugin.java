@@ -126,8 +126,8 @@ public class ClassGetMethodPlugin implements Plugin {
                         AbstractInsnNode prev = min.getPrevious();
                         Method method = null;
                         while (prev != null) {
-                            if (prev instanceof VarInsnNode var) {
-                                /* Get the position of where it was stored in memory */
+                            if (prev instanceof VarInsnNode var && var.getOpcode() == Opcodes.ALOAD) {
+                                /* Get the position of where it was loaded from in memory */
                                 int pos = var.var;
                                 method = getMethodInPos(pos, callMap);
                             } else if (prev instanceof MethodInsnNode methodInsn)  {
@@ -143,19 +143,58 @@ public class ClassGetMethodPlugin implements Plugin {
                             prev = prev.getPrevious();
                         }
 
-                        /* Insert bytecode equivalent of invocation */
-                        MethodInsnNode invoke = new MethodInsnNode(Opcodes.INVOKESTATIC,
-                                method.className,
-                                method.methodName,
-                                method.desc);
-                        il.set(min, invoke);
+                        if (method != null) {
+                            /* Insert bytecode equivalent of invocation */
+                            MethodInsnNode invoke = new MethodInsnNode(Opcodes.INVOKESTATIC,
+                                    method.className,
+                                    method.methodName,
+                                    method.desc);
+                            il.set(min, invoke);
 
-                        /* Remove unnecessary instructions */
-                        for (AbstractInsnNode r : toRemove) {
-                            il.remove(r);
+                            /* Remove unnecessary instructions */
+                            for (AbstractInsnNode r : toRemove) {
+                                il.remove(r);
+                            }
+
+                            modified = true;
+                        }
+                    }
+                } else if (insn instanceof VarInsnNode var && var.getOpcode() == Opcodes.ALOAD) {
+                    int pos = var.var;
+                    Method method = getMethodInPos(var.var, callMap);
+                    if (method != null) {
+
+                        int aloadCount = 1;
+                        AbstractInsnNode next = var.getNext();
+                        while (next != null) {
+                            // TODO check what happens with a pop? Need test case to manually create bytecode.
+
+                            if (next instanceof VarInsnNode store) {
+                                if (store.getOpcode() == Opcodes.ALOAD) {
+                                    aloadCount++;
+                                } else if (store.getOpcode() == Opcodes.ASTORE) {
+                                    aloadCount--;
+                                    if (aloadCount == 0) {
+                                        // replace in map
+                                        replacePositionInMap(pos, store, callMap);
+                                        break;
+                                    }
+                                }
+                            } else if (next instanceof MethodInsnNode methodInsn) {
+                                if (methodInsn.getOpcode() == Opcodes.INVOKEVIRTUAL
+                                        && methodInsn.name.equals("invoke")
+                                        && methodInsn.owner.equals("java/lang/reflect/Method")) {
+                                    aloadCount--;
+                                    if (aloadCount == 0) break;
+                                }
+                            }
+                            next = next.getNext();
                         }
 
-                        modified = true;
+                        if (next == null) {
+                            /* Means we loaded and didn't store back */
+                            replacePositionInMap(pos, null, callMap);
+                        }
                     }
                 }
                 instructionIndex++;
@@ -172,6 +211,29 @@ public class ClassGetMethodPlugin implements Plugin {
 
 
        return resource;
+    }
+
+    /**
+     * Replaces the VarInsnNode associated with a method if it changed position in memory or removes
+     * method call from map if value was loaded but not used anywhere.
+     * @param oldPos
+     * @param newNode
+     * @param callMap
+     */
+    private void replacePositionInMap(int oldPos, AbstractInsnNode newNode, Map<AbstractInsnNode, Method> callMap) {
+        AbstractInsnNode toRemove = null;
+        Method method = null;
+        for (AbstractInsnNode node : callMap.keySet()) {
+            if (node instanceof VarInsnNode var && var.var == oldPos) {
+                toRemove = node;
+                method = callMap.get(node);
+            }
+        }
+
+        callMap.remove(toRemove);
+        if (newNode != null) {
+            callMap.put(newNode, method);
+        }
     }
 
     private Method getMethodInPos(int pos, Map<AbstractInsnNode, Method> callMap) {

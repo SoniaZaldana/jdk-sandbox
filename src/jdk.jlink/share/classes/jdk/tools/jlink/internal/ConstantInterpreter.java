@@ -24,7 +24,7 @@ public class ConstantInterpreter extends BasicInterpreter {
             if (cst instanceof String) {
                 return new StringValue((String)cst, ldc);
             } else if (cst instanceof Type c) {
-                return new ClassValue(c.getInternalName(), ldc);
+                return new ClassValue(c.getInternalName());
             }
         } else if (insn instanceof InsnNode) {
             InsnNode i = (InsnNode)  insn;
