@@ -7,6 +7,8 @@ import jdk.internal.org.objectweb.asm.tree.analysis.AnalyzerException;
 import jdk.internal.org.objectweb.asm.tree.analysis.BasicInterpreter;
 import jdk.internal.org.objectweb.asm.tree.analysis.BasicValue;
 
+import java.util.List;
+
 import static jdk.internal.org.objectweb.asm.tree.analysis.BasicValue.REFERENCE_VALUE;
 
 public class ConstantInterpreter extends BasicInterpreter {
@@ -35,6 +37,20 @@ public class ConstantInterpreter extends BasicInterpreter {
             }
         }
         return super.newOperation(insn);
+    }
+
+    @Override
+    public BasicValue naryOperation(
+            final AbstractInsnNode insn, final List<? extends BasicValue> values)
+            throws AnalyzerException {
+        if (insn instanceof MethodInsnNode min) {
+            if (min.getOpcode() == Opcodes.INVOKEVIRTUAL && min.name.equals("getMethod")
+                    && min.owner.equals("java/lang/Class")) {
+                return new MethodValue(min, values);
+            }
+        }
+
+        return super.naryOperation(insn, values);
     }
 
     @Override
