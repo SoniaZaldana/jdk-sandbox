@@ -90,7 +90,7 @@ public class ClassGetMethodPlugin implements Plugin {
                 .forEach(resource -> {
                     String path = resource.path();
                     // TODO remove java.base when finished testing
-                    if (path.endsWith(".class") && !path.endsWith("/module-info.class") && ! resource.moduleName().equals("java.base")) {
+                    if (path.endsWith(".class") && !path.endsWith("/module-info.class")) {
                         out.add(transform(resource, in));
                     } else {
                         out.add(resource);
@@ -158,12 +158,18 @@ public class ClassGetMethodPlugin implements Plugin {
                         }
 
                         if (params.get(0) instanceof MethodValue mv
+                                && !mv.isDeclared()
+                                // FIXME: can remove above condition once I add more code to determine when is it safe to remove those calls.
                                 && !isInitMethod(mv.getMethodName())
                                 && params.get(2) instanceof ArrayValue av) {
 
                             List<AbstractInsnNode> inputs = getInputs(min, sources, il, conditionals, true);
+
                             MethodNode matchingMethodNode = InheritanceGraphPlugin.
-                                    getMethod(mv.getClassName(), mv.getMethodName(), mv.getDesc());
+                                    getMethod(mv.getClassName().replace(".", "/"),
+                                            mv.getMethodName(),
+                                            mv.getDesc().replace(".", "/"),
+                                            mv.isDeclared());
 
                             /* Only do transformation if we find method, otherwise let reflective method do
                                the exception handling.
@@ -322,10 +328,11 @@ public class ClassGetMethodPlugin implements Plugin {
                         }
                     }
 
-                    else if (min.getOpcode() == Opcodes.INVOKEVIRTUAL && min.name.equals("getMethod")
-                            && min.owner.equals("java/lang/Class")) {
+                    else if (min.getOpcode() == Opcodes.INVOKEVIRTUAL
+                            && min.owner.equals("java/lang/Class") &&
+                            (min.name.equals("getMethod") || min.name.equals("getDeclaredMethod"))) {
 
-                        /* Get instructions to remove for getMethod */
+                        /* Get instructions to remove for getMethod or getDeclaredMethod */
                         List<AbstractInsnNode> inputs = getInputs(min, sources, il, conditionals, false);
                         List<AbstractInsnNode> remove = new ArrayList<>();
                         int start = il.indexOf(inputs.get(0));

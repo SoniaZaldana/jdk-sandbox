@@ -20,6 +20,12 @@ public class ClassValue extends BasicValue {
         return name;
     }
 
+    @Override
+    public String toString() {
+        return this.name;
+    }
+
+    @Override
     public boolean equals(Object o) {
         if (this == o) {
             return true;

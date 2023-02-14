@@ -81,9 +81,21 @@ public class InheritanceGraphPlugin implements Plugin, ResourcePrevisitor {
         }
     }
 
-    public static MethodNode getMethod(String className, String methodName, String desc) {
-        MethodList res = getMethodRecursive(className, methodName, getParams(desc), true /* includeStatic */);
+    public static MethodNode getMethod(String className, String methodName, String desc, boolean isDeclared) {
+        MethodList res;
+        if (isDeclared) {
+            res = getDeclaredMethod(className, methodName, desc);
+        } else {
+            res = getMethodRecursive(className, methodName,
+                    getParams(desc), true /* includeStatic */);
+        }
         return res == null ? null : res.getMostSpecific();
+    }
+
+    /** Returns method node declared by the class itself including public, private and protected methods. */
+    public static MethodList getDeclaredMethod(String className, String methodName, String desc) {
+        ClassNode cn = context.getClassNode(className);
+        return MethodList.filterForMatches(cn.methods, methodName, getParams(desc), true /* include static */);
     }
 
     public static MethodList getMethodRecursive(String className, String methodName,

@@ -10,7 +10,7 @@ public class FieldValue extends BasicValue {
     String owner;
 
     public FieldValue(FieldInsnNode node) {
-        super(Type.getObjectType(node.owner));
+        super(Type.getType(node.desc));
         this.node = node;
         this.owner = node.owner;
     }

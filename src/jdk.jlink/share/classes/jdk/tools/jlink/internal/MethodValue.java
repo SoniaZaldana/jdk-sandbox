@@ -14,8 +14,9 @@ public class MethodValue extends BasicValue {
     String methodName;
     String desc;
     List<String> splitDesc;
+    boolean isDeclared;
 
-    public MethodValue(MethodInsnNode min, ClassValue cv, StringValue sv, ArrayValue av) {
+    public MethodValue(MethodInsnNode min, ClassValue cv, StringValue sv, ArrayValue av, boolean isDeclared) {
         super(Type.getReturnType((min).desc));
         this.min = min;
         this.splitDesc = new ArrayList<>();
@@ -39,8 +40,7 @@ public class MethodValue extends BasicValue {
         }
         types = types.concat(")");
         desc = types;
-
-
+        this.isDeclared = isDeclared;
     }
 
     public String getClassName() {
@@ -63,6 +63,10 @@ public class MethodValue extends BasicValue {
         return min;
     }
 
+    public boolean isDeclared() {
+        return this.isDeclared;
+    }
+
     @Override
     public String toString()  {
         return String.format("Method - %s#%s%s", className, methodName, desc);
@@ -77,7 +81,8 @@ public class MethodValue extends BasicValue {
                     && v.className.equals(className)
                     && v.methodName.equals(methodName)
                     && v.min.equals(min)
-                    && v.splitDesc.equals(splitDesc);
+                    && v.splitDesc.equals(splitDesc)
+                    && v.isDeclared == isDeclared;
         }
         return false;
     }

@@ -55,12 +55,26 @@ public class ConstantInterpreter extends BasicInterpreter {
             final AbstractInsnNode insn, final List<? extends BasicValue> values)
             throws AnalyzerException {
         if (insn instanceof MethodInsnNode min) {
-            if (min.getOpcode() == Opcodes.INVOKEVIRTUAL && min.name.equals("getMethod")
-                    && min.owner.equals("java/lang/Class")) {
-                if (values.get(0) instanceof ClassValue cv
-                        && values.get(1) instanceof StringValue sv
-                        && values.get(2) instanceof ArrayValue av) {
-                    return new MethodValue(min, cv, sv, av);
+            if (min.getOpcode() == INVOKEVIRTUAL) {
+                if (min.owner.equals("java/lang/Class")
+                        && (min.name.equals("getMethod") || min.name.equals("getDeclaredMethod"))) {
+                    if (values.get(0) instanceof ClassValue cv
+                            && values.get(1) instanceof StringValue sv
+                            && values.get(2) instanceof ArrayValue av) {
+                        return new MethodValue(min, cv, sv, av, min.name.equals("getDeclaredMethod"));
+                    }
+                } else if (min.name.equals("loadClass")
+                        && min.desc.equals("(Ljava/lang/String;)Ljava/lang/Class;")
+                        && values.get(1) instanceof StringValue sv && sv.getContents() != null) {
+                    return new ClassValue(sv.getContents());
+                }
+            } else if (min.getOpcode() == INVOKESTATIC) {
+                if (min.owner.equals("java/lang/Class")
+                        && min.name.equals("forName")
+                        && min.desc.equals("(Ljava/lang/String;)Ljava/lang/Class;")
+                        && values.get(0) instanceof StringValue sv
+                        && sv.getContents() != null) {
+                    return new ClassValue(sv.getContents());
                 }
             }
         }
